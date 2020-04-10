@@ -98,7 +98,31 @@ steps:
           # must save as ISSUE_KEYS='["CC-4"]'
           fetch https://circleci.com/api/v1.1/project/${VCS_TYPE}/${CIRCLE_PROJECT_USERNAME}/${CIRCLE_PROJECT_REPONAME}/${CIRCLE_BUILD_NUM} /tmp/job_info.json
           # see https://jqplay.org/s/TNq7c5ctot
-          ISSUE_KEYS=$(cat /tmp/job_info.json | jq '[.all_commit_details[].subject | scan("(<<parameters.issue_regexp>>)")   | .[] ] + [.all_commit_details[].branch | scan("(<<parameters.issue_regexp>>)")   | .[] ] + [if .branch then .branch else "" end | scan("(<<parameters.issue_regexp>>)")  | . [] ]')
+          VCS_TAG=$(jq -Mr .vcs_tag < /tmp/job_info.json)
+          if [ "${VCS_TAG}" != "null" ]; then
+            echo "This is a tagged Build.  No Commit History from job info API; not reporting build statuses"
+            if [ "<<parameters.job_type>>" == "deployment" ]; then
+              echo "This is also a Deployment.  Generating list of ISSUE_KEYS from git history"
+              git log --tags --simplify-by-decoration --format=%D | grep -Eo '(<<parameters.environment>>-v[0-9]+\.[0-9]+\.[0-9]+)' | head -2 | sort > /tmp/git_tag_list.txt
+              if [ $(wc -l /tmp/git_tag_list.txt) -lt 2 ]; then
+                echo "Not enough tags found"
+                cat /tmp/git_tag_list.txt
+              else
+                TAG_RANGE=$(sed -e :a  -e 'N;s/\n/../;ta' /tmp/git_tag_list.txt)
+                echo "Detected tag range: ${TAG_RANGE}"
+                git log ${TAG_RANGE} --format=%s | grep -Eo '<<parameters.issue_regexp>>' | sort | uniq > /tmp/api_issue_list.txt
+              fi
+            fi
+          else
+            JQ_QUERY='[.all_commit_details[].subject|scan("(<<parameters.issue_regexp>>)")|.[]]+[.all_commit_details[].branch|scan("(<<parameters.issue_regexp>>)")|.[]]+[if .branch then .branch else "" end|scan("(<<parameters.issue_regexp>>)")|.[]]|.[]'
+            jq -Mr "${JQ_QUERY}" < /tmp/job_info.json | sort | uniq > /tmp/api_issue_list.txt
+          fi
+
+          if [ -e /tmp/api_issue_list.txt ]; then
+            ISSUE_KEYS=$(jq -ncR '[inputs]' /tmp/api_issue_list.txt)
+          fi
+          echo "Final Issue Key List for Submission: ${ISSUE_KEYS}"
+          
           if [ -z "$ISSUE_KEYS" ]; then
             # No issue keys found.
             echo "No issue keys found. This build does not contain a match for a Jira Issue. Please add your issue ID to the commit message or within the branch name."
