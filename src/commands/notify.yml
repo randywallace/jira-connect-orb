@@ -29,6 +29,10 @@ parameters:
     description: Override the default project key regexp if your project keys follow a different format.
     default: "[A-Z]{2,30}-[0-9]+"
     type: string
+  tag_regexp:
+    description: Override the default project tag regexp.
+    default: "(v[0-9]+\\.[0-9]+\\.[0-9]+)"
+    type: string
 
 steps:
   - jq/install
@@ -103,8 +107,8 @@ steps:
             echo "This is a tagged Build.  No Commit History from job info API; not reporting build statuses"
             if [ "<<parameters.job_type>>" == "deployment" ]; then
               echo "This is also a Deployment.  Generating list of ISSUE_KEYS from git history"
-              git log --tags --simplify-by-decoration --format=%D | grep -Eo '(<<parameters.environment>>-v[0-9]+\.[0-9]+\.[0-9]+)' | head -2 | sort > /tmp/git_tag_list.txt
-              if [ $(wc -l /tmp/git_tag_list.txt) -lt 2 ]; then
+              git log --tags --simplify-by-decoration --format=%D | grep -Eo '<<parameters.tag_regexp>>' | head -2 | tac > /tmp/git_tag_list.txt
+              if [ $(wc -l /tmp/git_tag_list.txt | cut -d\  -f1) -lt 2 ]; then
                 echo "Not enough tags found"
                 cat /tmp/git_tag_list.txt
               else
